@@ -1,0 +1,65 @@
+pipeline {
+    agent any
+    parameters {
+        string(name: 'BRANCH_NAME', defaultValue: 'main', description: 'Branch name for the Dockerfile')
+        string(name: 'VERSION', defaultValue: '1.0.0', description: 'Version number for the application')
+    }
+    environment {
+        AWS_ACCOUNT_ID = '541930849207'
+        AWS_REGION = 'us-east-1'
+        IMAGE_NAME = '541930849207.dkr.ecr.us-east-1.amazonaws.com/frontend/account'
+        DEV_IMAGE_TAG = "dev-${VERSION}"
+        DEV_CLUSTER_CONTEXT = 'arn:aws:eks:ap-south-1:541930849207:cluster/lezdo-sandbox-eks-01'
+    }
+    stages {
+         stage('Git Credentials Setup') {
+            steps {
+                // Use Jenkins credentials stored securely in the Credentials Plugin
+                withCredentials([usernamePassword(credentialsId: 'GITLAB-CREDENTAILS', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
+                    script {
+                        // Configure Git credentials for username and password authentication
+                        sh """
+                        git config --global credential.helper store
+                        echo "https://${GIT_USERNAME}:${GIT_PASSWORD}@103.182.68.50/lezdo/staging-casedrive2.0-sourcecode-account" > ~/.git-credentials
+                        """
+                    }
+                }
+            }
+        }    
+        stage('AWS Login') {
+            steps {
+                script {
+                    sh """
+                    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                    """
+                }
+            }
+        }
+        stage('Build') {
+            steps {
+                script {
+                    sh "docker build --no-cache -t ${IMAGE_NAME}:${DEV_IMAGE_TAG} ."
+                }
+            }
+        }
+        stage('Tag & Push Dev Image') {
+            steps {
+                script {
+                    sh """
+                    docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${IMAGE_NAME}:${DEV_IMAGE_TAG}
+                    """
+                }
+            }
+        }
+        stage('Deploy to Dev') {
+            steps {
+                script {
+                    sh """
+                    kubectl config use-context ${DEV_CLUSTER_CONTEXT}
+                    kubectl set image deployment/frontend-account frontend-account=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${IMAGE_NAME}:${DEV_IMAGE_TAG}
+                    """
+                }
+            }
+        }
+    }
+}

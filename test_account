@@ -1,0 +1,95 @@
+pipeline {
+    agent any
+    parameters {
+        string(name: 'VERSION', defaultValue: '1.0.0', description: 'Latest version number for the dev image')
+    }
+    environment {
+        AWS_ACCOUNT_ID = '541930849207'
+        AWS_REGION = 'us-east-1'
+        AWS_REGION_CLUSTER = 'ap-south-1'
+        IMAGE_NAME = '541930849207.dkr.ecr.us-east-1.amazonaws.com/frontend/account'
+        DEV_IMAGE_TAG = "dev-${VERSION}"
+        TEST_IMAGE_TAG = "test-${VERSION}"
+        CLUSTER_CONTEXT = 'arn:aws:eks:ap-south-1:541930849207:cluster/lezdo-sandbox-eks-01'
+    }
+    stages {
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage('Pull Latest Dev Image') {
+            steps {
+                script {
+                    // Log in to AWS ECR
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'AWS']]) {
+                        sh """
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                        """
+                    }
+
+                    // Pull the latest image from the dev environment
+                    sh """
+                    docker pull ${IMAGE_NAME}:${DEV_IMAGE_TAG}
+                    """
+                }
+            }
+        }
+
+        stage('Tag Image for Test') {
+            steps {
+                script {
+                    // Tag the image with the test version
+                    sh """
+                    docker tag ${IMAGE_NAME}:${DEV_IMAGE_TAG} ${IMAGE_NAME}:${TEST_IMAGE_TAG}
+                    """
+                }
+            }
+        }
+
+        stage('Push Test Image to ECR') {
+            steps {
+                script {
+                    // Push the tagged image to the ECR registry for the test environment
+                    sh """
+                    docker push ${IMAGE_NAME}:${TEST_IMAGE_TAG}
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to Test Environment') {
+            steps {
+                script {
+                    // Update kubeconfig to use the EKS test cluster context
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'AWS']]) {
+                        sh """
+                        aws eks --region ${AWS_REGION_CLUSTER} update-kubeconfig --name lezdo-sandbox-eks-01
+                        kubectl config use-context ${CLUSTER_CONTEXT}
+
+                        # Deploy the tagged image to the test environment
+                        kubectl set image deployment/frontend-drive drive-react-app=${IMAGE_NAME}:${TEST_IMAGE_TAG} -n test
+                        """
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo 'Cleaning up after execution'
+            
+            // Remove Docker images from the Jenkins agent to clean up
+            sh """
+            docker rmi ${IMAGE_NAME}:${DEV_IMAGE_TAG} || true
+            docker rmi ${IMAGE_NAME}:${TEST_IMAGE_TAG} || true
+            docker image prune -f || true
+            """
+            
+            // Clean up git credentials securely after execution
+            sh "rm -f ~/.git-credentials"
+        }
+    }
+}

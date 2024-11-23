@@ -1,0 +1,114 @@
+pipeline {
+    agent any
+    parameters {
+        string(name: 'BRANCH_NAME', defaultValue: 'main', description: 'Branch name for the Dockerfile')
+        string(name: 'VERSION', defaultValue: '1.0.0', description: 'Version number for the application')
+    }
+    environment {
+        AWS_ACCOUNT_ID = '541930849207'
+        AWS_REGION = 'us-east-1'
+        AWS_REGION_CLUSTER = 'ap-south-1'
+        IMAGE_NAME = '541930849207.dkr.ecr.us-east-1.amazonaws.com/backend/php'
+        DEV_IMAGE_TAG = "dev-${VERSION}"
+        DEV_CLUSTER_CONTEXT = 'arn:aws:eks:ap-south-1:541930849207:cluster/lezdo-sandbox-eks-01'
+        GIT_REPO_URL = '103.182.68.50/lezdo/staging-casedrive2.0-sourcecode' // Your Git repository URL
+        GIT_CLONE_DIR = 'staging-casedrive2.0-sourcecode/backend/'  // Directory to clone the repo into
+        GIT_USERNAME = 'devops' // Hardcoded Git username
+        GIT_PASSWORD = 'Sidd@123' // Hardcoded Git password
+    }
+    stages {
+        stage('Clean Workspace') {
+            steps {
+                script {
+                    // Clean the workspace before starting the build
+                    cleanWs()
+                }
+            }
+        }
+
+        stage('Git Checkout') {
+            steps {
+                script {
+                    // Manually passing Git credentials for cloning
+                    def encodedUsername = java.net.URLEncoder.encode(GIT_USERNAME, 'UTF-8')
+                    def encodedPassword = java.net.URLEncoder.encode(GIT_PASSWORD, 'UTF-8')
+
+                    // Disable SSL verification if needed
+                    sh """
+                    git config --global http.sslVerify false
+
+                    # Clone the repository using the encoded credentials in the URL
+                    git clone http://${encodedUsername}:${encodedPassword}@${GIT_REPO_URL} --branch ${BRANCH_NAME} --single-branch
+                    cd ${GIT_CLONE_DIR}
+                    """
+                }
+            }
+        }
+
+        stage('AWS Login') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'AWS']]) {
+                    script {
+                        // Log in to AWS ECR using AWS CLI with credentials injected
+                        sh """
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                script {
+                    // Change directory to the folder where the Dockerfile is located
+                    sh """
+                    cd ${GIT_CLONE_DIR}
+
+                    # Run the Docker build command in the correct directory
+                    docker build --no-cache -t ${IMAGE_NAME}:${DEV_IMAGE_TAG} .
+                    """
+                }
+            }
+        }
+
+        stage('Tag & Push Dev Image') {
+            steps {
+                script {
+                    sh """
+                    docker push ${IMAGE_NAME}:${DEV_IMAGE_TAG}
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to Dev') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'AWS']]) {
+                    script {
+                        // Update kubeconfig to use the EKS cluster context
+                        sh """
+                        aws eks --region ${AWS_REGION_CLUSTER} update-kubeconfig --name lezdo-sandbox-eks-01
+
+                        # Now use the correct context in kubectl
+                        kubectl config use-context arn:aws:eks:ap-south-1:541930849207:cluster/lezdo-sandbox-eks-01
+
+                        # Deploy the updated Docker image to Kubernetes
+                        kubectl set image deployment/backend-admin-module admin-backend-app=${IMAGE_NAME}:${DEV_IMAGE_TAG} -n dev
+                        """
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo 'Cleaning up after execution'
+            
+            // Clean up git credentials securely after execution
+            sh "rm -f ~/.git-credentials"
+            
+        }
+    }
+}
