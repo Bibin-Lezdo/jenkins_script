@@ -1,16 +1,16 @@
 pipeline {
     agent any
     parameters {
-        string(name: 'VERSION', defaultValue: '1.0.0', description: 'Latest version number for the dev image')
+        string(name: 'VERSION', defaultValue: '1.0.0', description: 'Latest version number for the test image')
     }
     environment {
         AWS_ACCOUNT_ID = '541930849207'
         AWS_REGION = 'us-east-1'
-        AWS_REGION_CLUSTER = 'ap-south-1'
+        AWS_REGION_CLUSTER = 'us-east-1'
         IMAGE_NAME = '541930849207.dkr.ecr.us-east-1.amazonaws.com/frontend/account'
-        DEV_IMAGE_TAG = "dev-${VERSION}"
         TEST_IMAGE_TAG = "test-${VERSION}"
-        CLUSTER_CONTEXT = 'arn:aws:eks:ap-south-1:541930849207:cluster/lezdo-sandbox-eks-01'
+        STAGE_IMAGE_TAG = "stage-${VERSION}"
+        CLUSTER_CONTEXT = 'arn:aws:eks:us-east-1:541930849207:cluster/lezdo-eks-01'
     }
     stages {
         stage('Clean Workspace') {
@@ -19,7 +19,7 @@ pipeline {
             }
         }
 
-        stage('Pull Latest Dev Image') {
+        stage('Pull Latest Test Image') {
             steps {
                 script {
                     // Log in to AWS ECR
@@ -29,47 +29,47 @@ pipeline {
                         """
                     }
 
-                    // Pull the latest image from the dev environment
+                    // Pull the latest image from the test environment
                     sh """
-                    docker pull ${IMAGE_NAME}:${DEV_IMAGE_TAG}
+                    docker pull ${IMAGE_NAME}:${TEST_IMAGE_TAG}
                     """
                 }
             }
         }
 
-        stage('Tag Image for Test') {
+        stage('Tag Image for Stage') {
             steps {
                 script {
-                    // Tag the image with the test version
+                    // Tag the image with the stage version
                     sh """
-                    docker tag ${IMAGE_NAME}:${DEV_IMAGE_TAG} ${IMAGE_NAME}:${TEST_IMAGE_TAG}
+                    docker tag ${IMAGE_NAME}:${TEST_IMAGE_TAG} ${IMAGE_NAME}:${STAGE_IMAGE_TAG}
                     """
                 }
             }
         }
 
-        stage('Push Test Image to ECR') {
+        stage('Push Stage Image to ECR') {
             steps {
                 script {
-                    // Push the tagged image to the ECR registry for the test environment
+                    // Push the tagged image to the ECR registry for the stage environment
                     sh """
-                    docker push ${IMAGE_NAME}:${TEST_IMAGE_TAG}
+                    docker push ${IMAGE_NAME}:${STAGE_IMAGE_TAG}
                     """
                 }
             }
         }
 
-        stage('Deploy to Test Environment') {
+        stage('Deploy to Stage Environment') {
             steps {
                 script {
-                    // Update kubeconfig to use the EKS test cluster context
+                    // Update kubeconfig to use the EKS stage cluster context
                     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'AWS']]) {
                         sh """
-                        aws eks --region ${AWS_REGION_CLUSTER} update-kubeconfig --name lezdo-sandbox-eks-01
+                        aws eks --region ${AWS_REGION_CLUSTER} update-kubeconfig --name lezdo-eks-01
                         kubectl config use-context ${CLUSTER_CONTEXT}
 
-                        # Deploy the tagged image to the test environment
-                        kubectl set image deployment/frontend-account frontend-account=${IMAGE_NAME}:${TEST_IMAGE_TAG} -n test
+                        # Deploy the tagged image to the stage environment
+                        kubectl set image deployment/frontend-drive drive-react-app=${IMAGE_NAME}:${STAGE_IMAGE_TAG} -n stage
                         """
                     }
                 }
@@ -83,8 +83,8 @@ pipeline {
             
             // Remove Docker images from the Jenkins agent to clean up
             sh """
-            docker rmi ${IMAGE_NAME}:${DEV_IMAGE_TAG} || true
             docker rmi ${IMAGE_NAME}:${TEST_IMAGE_TAG} || true
+            docker rmi ${IMAGE_NAME}:${STAGE_IMAGE_TAG} || true
             docker image prune -f || true
             """
             

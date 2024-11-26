@@ -69,7 +69,7 @@ pipeline {
                         kubectl config use-context ${CLUSTER_CONTEXT}
 
                         # Deploy the tagged image to the test environment
-                        kubectl set image deployment/frontend-admin-module admin-react-app=${IMAGE_NAME}:${TEST_IMAGE_TAG} -n test
+                        kubectl set image deployment/frontend-admin-module account-react-app=${IMAGE_NAME}:${TEST_IMAGE_TAG} -n test
                         """
                     }
                 }
