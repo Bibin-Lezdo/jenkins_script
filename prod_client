@@ -8,8 +8,8 @@ pipeline {
         AWS_REGION = 'us-east-1'
         AWS_REGION_CLUSTER = 'us-east-1'
         IMAGE_NAME = '541930849207.dkr.ecr.us-east-1.amazonaws.com/frontend/client'
-        TEST_IMAGE_TAG = "test-${VERSION}"
         STAGE_IMAGE_TAG = "stage-${VERSION}"
+        PROD_IMAGE_TAG = "prod-${VERSION}"
         CLUSTER_CONTEXT = 'arn:aws:eks:us-east-1:541930849207:cluster/lezdo-eks-01'
     }
     stages {
@@ -19,7 +19,7 @@ pipeline {
             }
         }
 
-        stage('Pull Latest Test Image') {
+        stage('Pull Latest Stage Image') {
             steps {
                 script {
                     // Log in to AWS ECR
@@ -29,47 +29,47 @@ pipeline {
                         """
                     }
 
-                    // Pull the latest image from the test environment
+                    // Pull the latest image from the stage environment
                     sh """
-                    docker pull ${IMAGE_NAME}:${TEST_IMAGE_TAG}
+                    docker pull ${IMAGE_NAME}:${STAGE_IMAGE_TAG}
                     """
                 }
             }
         }
 
-        stage('Tag Image for Stage') {
+        stage('Tag Image for Prod') {
             steps {
                 script {
-                    // Tag the image with the stage version
+                    // Tag the image with the prod version
                     sh """
-                    docker tag ${IMAGE_NAME}:${TEST_IMAGE_TAG} ${IMAGE_NAME}:${STAGE_IMAGE_TAG}
+                    docker tag ${IMAGE_NAME}:${STAGE_IMAGE_TAG} ${IMAGE_NAME}:${PROD_IMAGE_TAG}
                     """
                 }
             }
         }
 
-        stage('Push Stage Image to ECR') {
+        stage('Push Prod Image to ECR') {
             steps {
                 script {
-                    // Push the tagged image to the ECR registry for the stage environment
+                    // Push the tagged image to the ECR registry for the prod environment
                     sh """
-                    docker push ${IMAGE_NAME}:${STAGE_IMAGE_TAG}
+                    docker push ${IMAGE_NAME}:${PROD_IMAGE_TAG}
                     """
                 }
             }
         }
 
-        stage('Deploy to Stage Environment') {
+        stage('Deploy to Prod Environment') {
             steps {
                 script {
-                    // Update kubeconfig to use the EKS stage cluster context
+                    // Update kubeconfig to use the EKS prod cluster context
                     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'AWS']]) {
                         sh """
                         aws eks --region ${AWS_REGION_CLUSTER} update-kubeconfig --name lezdo-eks-01
                         kubectl config use-context ${CLUSTER_CONTEXT}
 
-                        # Deploy the tagged image to the stage environment
-                        kubectl set image deployment/frontend-client client-react-app=${IMAGE_NAME}:${STAGE_IMAGE_TAG} -n stage
+                        # Deploy the tagged image to the prod environment
+                        kubectl set image deployment/frontend-client account-react-app=${IMAGE_NAME}:${PROD_IMAGE_TAG} -n prod
                         """
                     }
                 }
@@ -83,8 +83,8 @@ pipeline {
             
             // Remove Docker images from the Jenkins agent to clean up
             sh """
-            docker rmi ${IMAGE_NAME}:${TEST_IMAGE_TAG} || true
             docker rmi ${IMAGE_NAME}:${STAGE_IMAGE_TAG} || true
+            docker rmi ${IMAGE_NAME}:${PROD_IMAGE_TAG} || true
             docker image prune -f || true
             """
             

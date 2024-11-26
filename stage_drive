@@ -7,7 +7,7 @@ pipeline {
         AWS_ACCOUNT_ID = '541930849207'
         AWS_REGION = 'us-east-1'
         AWS_REGION_CLUSTER = 'us-east-1'
-        IMAGE_NAME = '541930849207.dkr.ecr.us-east-1.amazonaws.com/frontend/account'
+        IMAGE_NAME = '541930849207.dkr.ecr.us-east-1.amazonaws.com/frontend/drive'
         TEST_IMAGE_TAG = "test-${VERSION}"
         STAGE_IMAGE_TAG = "stage-${VERSION}"
         CLUSTER_CONTEXT = 'arn:aws:eks:us-east-1:541930849207:cluster/lezdo-eks-01'
