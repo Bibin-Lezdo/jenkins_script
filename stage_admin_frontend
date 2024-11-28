@@ -69,7 +69,7 @@ pipeline {
                         kubectl config use-context ${CLUSTER_CONTEXT}
 
                         # Deploy the tagged image to the stage environment
-                        kubectl set image deployment/frontend-account account-react-app=${IMAGE_NAME}:${STAGE_IMAGE_TAG} -n stage
+                        kubectl set image deployment/frontend-admin-module account-react-app=${IMAGE_NAME}:${STAGE_IMAGE_TAG} -n stage
                         """
                     }
                 }

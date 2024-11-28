@@ -101,14 +101,19 @@ pipeline {
             }
         }
     }
-    
     post {
         always {
             echo 'Cleaning up after execution'
             
+            // Remove Docker images from the Jenkins agent to clean up
+            sh """
+            docker rmi ${IMAGE_NAME}:${DEV_IMAGE_TAG} || true
+            docker image prune -f || true
+            """
+            
             // Clean up git credentials securely after execution
             sh "rm -f ~/.git-credentials"
-            
         }
+    
     }
 }

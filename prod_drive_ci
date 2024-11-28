@@ -1,16 +1,14 @@
 pipeline {
     agent any
     parameters {
-        string(name: 'VERSION', defaultValue: '1.0.0', description: 'Latest version number for the test image')
+        string(name: 'VERSION', defaultValue: '1.0.0', description: 'Latest version number for the stage image')
     }
     environment {
         AWS_ACCOUNT_ID = '541930849207'
         AWS_REGION = 'us-east-1'
-        AWS_REGION_CLUSTER = 'us-east-1'
-        IMAGE_NAME = '541930849207.dkr.ecr.us-east-1.amazonaws.com/backend/php'
+        IMAGE_NAME = '541930849207.dkr.ecr.us-east-1.amazonaws.com/frontend/drive'
         STAGE_IMAGE_TAG = "stage-${VERSION}"
         PROD_IMAGE_TAG = "prod-${VERSION}"
-        CLUSTER_CONTEXT = 'arn:aws:eks:us-east-1:541930849207:cluster/lezdo-eks-01'
     }
     stages {
         stage('Clean Workspace') {
@@ -58,37 +56,18 @@ pipeline {
                 }
             }
         }
-
-        stage('Deploy to Prod Environment') {
-            steps {
-                script {
-                    // Update kubeconfig to use the EKS prod cluster context
-                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'AWS']]) {
-                        sh """
-                        aws eks --region ${AWS_REGION_CLUSTER} update-kubeconfig --name lezdo-eks-01
-                        kubectl config use-context ${CLUSTER_CONTEXT}
-
-                        # Deploy the tagged image to the prod environment
-                        kubectl set image deployment/backend-admin-module admin-backend-app=${IMAGE_NAME}:${PROD_IMAGE_TAG} -n prod
-                        """
-                    }
-                }
-            }
-        }
     }
-    
+
     post {
         always {
             echo 'Cleaning up after execution'
             
-            // Remove Docker images from the Jenkins agent to clean up
             sh """
             docker rmi ${IMAGE_NAME}:${STAGE_IMAGE_TAG} || true
             docker rmi ${IMAGE_NAME}:${PROD_IMAGE_TAG} || true
             docker image prune -f || true
             """
             
-            // Clean up git credentials securely after execution
             sh "rm -f ~/.git-credentials"
         }
     }
